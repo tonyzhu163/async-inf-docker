@@ -1,0 +1,25 @@
+# uv override file — absolute pins that REPLACE whatever constituent packages
+# declare. Passed as `uv pip install --overrides`.
+#
+# Unlike pip constraints (additive, so a declared `torch>=2.7` still wins and
+# the resolution fails), uv overrides replace the declared requirement outright.
+# That is what lets the LeRobot fork install in ONE pass against cu121 torch
+# instead of pulling 2.7 and then being downgraded.
+#
+# Values must stay in sync with environment/lerobot-smolvla-cu121.yml.
+
+# The fork's metadata declares torch>=2.7. cu121 is what every published number
+# in this repo was measured under, and 2.5.1 is validated on this stack.
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
+
+numpy==2.2.6
+setuptools==80.10.2
+fsspec==2026.2.0
+
+# EVAL-COMPARABILITY pin, not a compatibility one: mujoco 3.8.1 renders darker
+# floors and understates success rate, so anything measured under it is not
+# comparable to the repo's numbers. robosuite/libero would otherwise pull a
+# newer one. Asserted in the image's build-time smoke test.
+mujoco==3.3.2

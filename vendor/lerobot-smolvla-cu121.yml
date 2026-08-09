@@ -1,0 +1,26 @@
+# Server-specific LeRobot SmolVLA env for the school cluster.
+#
+# The cluster currently reports driver CUDA 12.2 and /usr/local/cuda-12.1.
+# Unpinned torch can resolve to CUDA 13 wheels, which do not initialize on this
+# driver. This profile pins cu121 wheels so torch.cuda works on RTX 3090 nodes.
+#
+# Caveat: the current LeRobot fork metadata declares torch>=2.7 and
+# torchvision>=0.22. Use this profile only for this old-driver cluster and
+# validate with the SmolVLA smoke/training run.
+name: lerobot-smolvla
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - ffmpeg
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - torch==2.5.1+cu121
+      - torchvision==0.20.1+cu121
+      - torchaudio==2.5.1+cu121
+      - numpy==2.2.6
+      - setuptools==80.10.2
+      - fsspec==2026.2.0
+      - json_numpy
