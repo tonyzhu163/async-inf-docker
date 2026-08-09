@@ -27,6 +27,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake pkg-config ca-certificates curl git git-lfs rsync \
+      openssh-server \
       bzip2 unzip less htop tmux vim-tiny \
       libegl1 libgles2 libglvnd0 libgl1 libglx0 libglfw3 libosmesa6 libosmesa6-dev \
       libegl1-mesa-dev libgl1-mesa-dev \
@@ -124,7 +125,9 @@ ENV DATA_ROOT=/data \
     NVIDIA_VISIBLE_DEVICES=all
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/write_libero_config.py
+COPY verify_gpu.py /usr/local/bin/verify_gpu.py
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/write_libero_config.py \
+      /usr/local/bin/verify_gpu.py
 
 # Import smoke. Write a throwaway LIBERO config first — importing libero.libero
 # with no config on disk prompts on stdin, which fails a non-interactive build.

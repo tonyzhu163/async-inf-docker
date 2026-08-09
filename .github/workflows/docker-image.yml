@@ -12,6 +12,7 @@ on:
         default: eval/smolvla
   push:
     branches: [main]
+    paths-ignore: [README.md]
 
 permissions:
   contents: read
