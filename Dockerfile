@@ -20,12 +20,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8
 
 # --- system: GL/EGL/OSMesa for MuJoCo headless, plus build + sync tools -------
+# cmake and the mesa -dev headers are not optional: lerobot[libero] pulls
+# hf-libero -> robomimic -> egl-probe, which ships only an sdist and builds a
+# small EGL probe binary via CMake at install time.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates curl git git-lfs rsync \
+      build-essential cmake pkg-config ca-certificates curl git git-lfs rsync \
       bzip2 unzip less htop tmux vim-tiny \
       libegl1 libgles2 libglvnd0 libgl1 libglx0 libglfw3 libosmesa6 libosmesa6-dev \
+      libegl1-mesa-dev libgl1-mesa-dev \
       libx11-6 libxext6 libxrender1 libxcursor1 libxinerama1 libxi6 libxrandr2 \
       patchelf
 
