@@ -109,6 +109,33 @@ RUN git clone --depth 1 https://github.com/Lifelong-Robot-Learning/LIBERO /tmp/L
 # --- robosuite /tmp/robosuite.log shim ----------------------------------------
 COPY vendor/robosuite_logpatch /opt/robosuite_logpatch
 
+# --- job scheduling -----------------------------------------------------------
+# A rented box has no scheduler, and hand-launching against N GPUs failed twice on
+# 2026-08-10, both expensively. Four eval arms silently stacked on GPU 0 because
+# each re-exported CUDA_VISIBLE_DEVICES=0 -- that variable is ABSOLUTE, so a child
+# setting it overrides the parent's pin. A later batch was SIGKILLed eleven
+# minutes in when the ssh session dropped; plain `nohup` does not survive that
+# here. pueue removes both structurally: one group per GPU at `parallel 1` cannot
+# double-book a device, and pueued is a real daemon.
+#
+# Pin the version. Asset naming changed between releases -- v4.0.4 publishes
+# `pueue-x86_64-unknown-linux-musl`, older tags used `pueue-linux-x86_64` -- so an
+# unpinned fetch breaks silently at some future tag.
+ARG PUEUE_VERSION=v4.0.4
+RUN set -eux; \
+    base="https://github.com/Nukesor/pueue/releases/download/${PUEUE_VERSION}"; \
+    for b in pueue pueued; do \
+      curl -fsSL "${base}/${b}-x86_64-unknown-linux-musl" -o "/usr/local/bin/${b}"; \
+      chmod +x "/usr/local/bin/${b}"; \
+    done; \
+    pueue --version; pueued --version
+
+# nvitop into the SYSTEM python, not the conda env: it is an ops tool rather than
+# a project dependency and must work whichever env is active. It attributes GPU
+# memory PER PROCESS, which makes a double-booked device obvious at a glance
+# instead of something inferred from aggregate nvidia-smi totals.
+RUN pip3 install --no-cache-dir nvitop==1.7.1 && nvitop --version
+
 # --- runtime environment ------------------------------------------------------
 ENV DATA_ROOT=/data \
     HF_HOME=/data/hf_cache \

@@ -31,4 +31,29 @@ if [[ -n "$(ls -A /workspace 2>/dev/null)" ]]; then
   done
 fi
 
+# --- job queue ----------------------------------------------------------------
+# Runtime state, so it cannot live in an image layer. One group per PHYSICAL GPU
+# at `parallel 1`: a task queued to gpuN can never share a device with another,
+# which is the failure that silently stacked four eval arms on GPU 0.
+#
+# Count from `nvidia-smi -L`, not a hardcoded 4 -- the same image should work on
+# an 8-GPU rental. Note this counts ENUMERABLE devices, so a card the driver
+# cannot initialise is excluded automatically, which is the behaviour you want.
+#
+# Never fatal: this is convenience tooling, and the container must still start on
+# a box with no GPU or no pueue.
+if command -v pueued >/dev/null 2>&1; then
+  pueued -d >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5; do pueue status >/dev/null 2>&1 && break; sleep 0.4; done
+  if pueue status >/dev/null 2>&1; then
+    n_gpu="$(nvidia-smi -L 2>/dev/null | grep -c UUID || true)"
+    for ((g = 0; g < ${n_gpu:-0}; g++)); do
+      pueue group add "gpu${g}" >/dev/null 2>&1 || true
+      pueue parallel 1 --group "gpu${g}" >/dev/null 2>&1 || true
+    done
+    echo "[entrypoint] pueue ready: ${n_gpu:-0} gpu group(s); queue with" \
+         "'pueue add -g gpu0 -- <cmd>', chain with '--after <id>'"
+  fi
+fi
+
 exec "$@"
