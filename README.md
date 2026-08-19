@@ -69,6 +69,46 @@ python -c "import torch, mujoco.egl; print(torch.__version__, torch.cuda.device_
 Four 4090s have no NVLink and no P2P, so run four independent single-GPU shards pinned
 with `CUDA_VISIBLE_DEVICES` rather than DDP.
 
+## Fresh box bootstrap
+
+Verified end-to-end on a new 4×4090 instance, 2026-08-19. Total wall time ~30 min,
+dominated by the HF dataset pull. Run everything below inside the container over ssh.
+
+```bash
+# 1. Sanity: GPUs, mujoco pin, EGL. CI can't test this — no GPU there.
+python /usr/local/bin/verify_gpu.py
+
+# 2. HF downloads, immediately and in the background (HF_HOME already → /data/hf_cache).
+mkdir -p /data/repos /data/envs /data/tmp
+nohup hf download HuggingFaceVLA/libero --repo-type dataset > /data/tmp/dl_libero.log 2>&1 &
+nohup sh -c 'hf download lerobot/pi05-libero && hf download lerobot/smolvla_base \
+  && hf download HuggingFaceTB/SmolVLM2-500M-Video-Instruct' > /data/tmp/dl_models.log 2>&1 &
+
+# 3. Research repo (from the workstation, not the box):
+#    rsync -az --exclude=.git --exclude=outputs --exclude=pretrained_models \
+#      Revisiting-Async-Inf/ <box>:/workspace/Revisiting-Async-Inf/
+
+# 4. π0.5/vlash env — on the volume, not in the image (conflicting pins, see below).
+git clone --branch sim/libero https://github.com/mit-han-lab/vlash /data/repos/vlash
+UV=/opt/mamba/envs/lerobot-smolvla/bin/uv
+export UV_CACHE_DIR=/data/pip_cache/uv CMAKE_POLICY_VERSION_MINIMUM=3.5
+$UV venv --python 3.10 /data/envs/vlash --seed
+$UV pip sync --python /data/envs/vlash/bin/python \
+  --extra-index-url https://download.pytorch.org/whl/cu121 \
+  --index-strategy unsafe-best-match \
+  /workspace/Revisiting-Async-Inf/requirements/vast/vlash-pi05.lock
+
+# 5. Prove the rebuild: freeze must match the lock, CUDA and EGL must work.
+$UV pip freeze --python /data/envs/vlash/bin/python | grep -vE '^(pip|wheel|setuptools)==|file:///' | sort \
+  | diff - <(grep -E '^[a-zA-Z0-9_-]+==' /workspace/Revisiting-Async-Inf/requirements/vast/vlash-pi05.lock | sort)
+/data/envs/vlash/bin/python -c "import torch; assert torch.cuda.is_available()"
+MUJOCO_GL=egl /data/envs/vlash/bin/python -c "import mujoco; c=mujoco.GLContext(64,64); c.make_current(); print('egl ok')"
+```
+
+Expected landing point: torch 2.5.1+cu121, mujoco 3.3.7, numpy 1.24.4 in the vlash
+env. A benign `GLContext.__del__` traceback at interpreter exit is normal. The
+`lerobot-kinetix` env follows the same pattern from its own `.in`/lock.
+
 ## Volume layout (300 GB)
 
 Measured from the source cluster, 2026-08-09:
