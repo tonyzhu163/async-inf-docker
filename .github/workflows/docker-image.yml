@@ -74,7 +74,6 @@ jobs:
             type=raw,value=${{ matrix.gpu }}
             type=raw,value=ada,enable=${{ matrix.gpu == 'rtx4090' }}
             type=raw,value=blackwell,enable=${{ matrix.gpu == 'rtx5090' }}
-            type=raw,value=latest,enable=${{ matrix.gpu == 'rtx5090' }}
             type=sha,prefix=${{ matrix.profile }}-sha-
 
       # No gha build cache on purpose: the Actions cache is capped at 10 GB per

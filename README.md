@@ -51,7 +51,7 @@ human-readable tags are deployment aliases.
 ~15 GB on disk, ~7 GB pushed, ~6 GB downloaded during the build — about 80% of
 which is the CUDA stack PyTorch bundles, not anything project-specific.
 
-Six things the cluster setup only gets right by hand, closed here at build time:
+Seven things the cluster setup only gets right by hand, closed here at build time:
 
 1. **`_slice_stats_to_tensor` patch** on the LeRobot fork.
 2. **One CUDA wheel profile held on the first resolve.** uv `--overrides`
@@ -65,6 +65,9 @@ Six things the cluster setup only gets right by hand, closed here at build time:
    prompts on stdin with no config on disk, hanging builds and batch jobs.
 6. **robosuite's hardcoded `/tmp/robosuite.log`** redirected via a `usercustomize`
    shim, so a shared or full `/tmp` can't crash env construction.
+7. **robosuite's UUID/EGL substring guard** relaxed. UUID-pinned lanes still
+   select an explicit probed EGL device instead of passing or failing according
+   to whether that device digit happens to appear in the UUID text.
 
 ## Run on vast
 
@@ -173,6 +176,7 @@ research repo under `requirements/`.
 | `vendor/lerobot-smolvla.yml` + `pip-overrides.txt` | research repo's cu126/cu128 profiles (same pins except CUDA triplet) |
 | `vendor/patch_lerobot_smolvla.sh` | `scripts_by_author/tonyzhu163/patch_lerobot_smolvla.sh` |
 | `vendor/robosuite_logpatch/` | `scripts/robosuite_logpatch/` |
+| `vendor/patch_robosuite_egl.py` | `scripts/maintenance/patch_robosuite_egl.py` |
 
 `pip-overrides.txt` must also stay consistent with the env yml's pins.
 

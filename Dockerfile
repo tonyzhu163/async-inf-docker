@@ -9,7 +9,8 @@
 #   3. mujoco pinned to the eval-comparable 3.3.2 by the same override
 #   4. full LIBERO asset tree overlaid on the incomplete pip `libero` package
 #   5. robosuite's hardcoded /tmp/robosuite.log redirected
-#   6. LIBERO config written before anything imports LIBERO
+#   6. robosuite's invalid UUID/EGL substring guard relaxed
+#   7. LIBERO config written before anything imports LIBERO
 #
 # The research repo is NOT baked in — mount it at /workspace at run time.
 # Data (HF cache, datasets, checkpoints, outputs) lives on the volume at /data.
@@ -104,6 +105,15 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
       --extra-index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" \
       -e "/opt/lerobot[smolvla,training,libero]" \
       json_numpy rich
+
+# robosuite 1.4 tests a host-global EGL index as a substring of
+# CUDA_VISIBLE_DEVICES. That is meaningless for UUID-pinned lanes and caused
+# one Vast4 lane to fail solely because its UUID did not contain digit "2".
+COPY vendor/patch_robosuite_egl.py /tmp/patch_robosuite_egl.py
+RUN python /tmp/patch_robosuite_egl.py "${ENV_PREFIX}" && \
+    CUDA_VISIBLE_DEVICES=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee \
+    MUJOCO_EGL_DEVICE_ID=2 MUJOCO_GL=disable \
+    python -c 'import robosuite.utils.binding_utils'
 
 # --- complete the LIBERO asset tree -------------------------------------------
 # The pip `libero` package ships 6 of 14 stable_hope_objects; any suite touching
