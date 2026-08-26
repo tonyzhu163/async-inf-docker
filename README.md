@@ -7,17 +7,17 @@ Build environment for LIBERO async evaluation and SmolVLA training on RTX
 This repo is public so Actions minutes and GHCR storage are free. It contains no
 research code — only an env spec, three small support scripts, and the Dockerfile.
 
-This image is the `lerobot-smolvla` **base role** of the research repo's
-`forward-v1` release. It has two accelerator profiles with identical
-model/benchmark pins:
+This image is the `lerobot-smolvla` **LIBERO benchmark + Torch-policy base** of
+the research repo's `forward-v1` release. It has two accelerator profiles with
+identical model/benchmark pins:
 
 | tag | target | PyTorch wheel | system CUDA base |
 |---|---|---|---|
 | `rtx4090` / `ada` | RTX 4090 | 2.7.1+cu126 | 12.1.1 (keeps Vast2's 550 driver usable) |
 | `rtx5090` / `blackwell` | RTX 5090 | 2.7.1+cu128 | 12.8.1 |
 
-The five-role compatibility map lives in
-[`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/codex/env-releases-v1/requirements/ENV_MAP.md);
+The benchmark/backend compatibility map lives in
+[`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/main/requirements/ENV_MAP.md);
 the extension locks remain in the research repo.
 
 ```bash
@@ -135,9 +135,10 @@ nohup sh -c 'hf download lerobot/pi05-libero && hf download lerobot/smolvla_base
 # requirements/domino-pi05-uv.md in the research repo.
 ```
 
-The forward VLASH landing point uses the selected Torch profile with MuJoCo
-3.3.7 and NumPy 1.24.4. Kinetix inherits this image's Torch and uses JAX 0.5.3
-on CPU by default, leaving the selected GPU to Torch.
+The frozen VLASH reproduction appliance uses the selected Torch profile while
+checkpoint/action parity is completed for absorption into this base. Kinetix
+inherits this image's Torch and uses JAX 0.5.3 on CPU by default, leaving the
+selected GPU to Torch; standalone GPU-JAX Kinetix is a separate service/process.
 A benign `GLContext.__del__` traceback at interpreter exit is normal.
 
 On an existing Vast template whose persistent volume is mounted at
