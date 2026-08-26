@@ -16,6 +16,8 @@
 
 FROM nvidia/cuda:12.8.1-base-ubuntu22.04
 
+COPY ENV_RELEASE /etc/async-inf-release
+
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8
 

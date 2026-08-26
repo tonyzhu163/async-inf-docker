@@ -7,14 +7,23 @@ Build environment for LIBERO async evaluation and SmolVLA training on RTX
 This repo is public so Actions minutes and GHCR storage are free. It contains no
 research code — only an env spec, three small support scripts, and the Dockerfile.
 
+This image is the `lerobot-smolvla` **base role** of the research repo's
+`forward-cu128` release. The five-role map lives in
+[`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/codex/env-releases-cu128/requirements/ENV_MAP.md);
+this image does not by itself qualify the Kinetix, OpenPI, DOMINO, or VLASH
+extensions on Blackwell.
+
 ```bash
 docker pull ghcr.io/tonyzhu163/async-inf-smolvla:blackwell
+# Immutable checkpoint used by the release map:
+docker pull ghcr.io/tonyzhu163/async-inf-smolvla@sha256:8bd18e6e15321c0e2279d1ad3ceeed215f8e99443a3df5ae86b920402edd35a9
 ```
 
 ## Contents
 
 | File | Role |
 |---|---|
+| `ENV_RELEASE` | Release identity baked into `/etc/async-inf-release` |
 | `Dockerfile` | The image |
 | `pip-overrides.txt` | Absolute version pins (uv overrides) |
 | `entrypoint.sh` | Volume layout + LIBERO config on start |
@@ -153,9 +162,9 @@ it. Mirror promotion-gate checkpoints off-box.
 ## Lockfile
 
 The image pins only what matters and lets uv resolve the rest. Every CI run uploads the
-full resolution as an artifact (`lerobot-smolvla-docker.lock`); commit it to the
-research repo under `requirements/` to make builds reproducible rather than merely
-pinned.
+full resolution as an artifact (`lerobot-smolvla-docker.lock`). The successful
+forward build is recorded in the research repo as
+`requirements/lerobot-smolvla-cu128.lock`.
 
 ## Keeping `vendor/` in sync
 
@@ -163,15 +172,15 @@ pinned.
 
 | Here | Upstream |
 |---|---|
-| `vendor/lerobot-smolvla-cu128.yml` | Blackwell branch source of truth |
+| `vendor/lerobot-smolvla-cu128.yml` + `pip-overrides.txt` | research repo `environment/lerobot-smolvla-cu128.yml` |
 | `vendor/patch_lerobot_smolvla.sh` | `scripts_by_author/tonyzhu163/patch_lerobot_smolvla.sh` |
 | `vendor/robosuite_logpatch/` | `scripts/robosuite_logpatch/` |
 
 `pip-overrides.txt` must also stay consistent with the env yml's pins.
 
-## Adding the other stacks
+## Other runtime roles
 
-π0.5/vlash and vla-adapter want conflicting pins (mujoco 3.3.7 + numpy 1.24.4 for
-vlash; tensorflow/dlimp for vla-adapter), so they belong in **separate tags**, not extra
-conda envs here. Copy the Dockerfile, swap the env layer, keep the base and the `/data`
-contract.
+Kinetix is an overlay on this base. OpenPI and DOMINO are separate cooperating
+services, while VLASH is an isolated reproduction environment. They keep their
+own locks and require independent Blackwell qualification; do not add their
+conflicting packages to this base image.
