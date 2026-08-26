@@ -16,7 +16,7 @@ extensions on Blackwell.
 ```bash
 docker pull ghcr.io/tonyzhu163/async-inf-smolvla:blackwell
 # Immutable checkpoint used by the release map:
-docker pull ghcr.io/tonyzhu163/async-inf-smolvla@sha256:8bd18e6e15321c0e2279d1ad3ceeed215f8e99443a3df5ae86b920402edd35a9
+docker pull ghcr.io/tonyzhu163/async-inf-smolvla@sha256:e8199b5ef702b69805b4e6f4da64244085332fa728f01aede560e17c4d2d5bc7
 ```
 
 ## Contents
