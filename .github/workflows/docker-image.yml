@@ -9,9 +9,9 @@ on:
     inputs:
       lerobot_ref:
         description: LeRobot fork branch or tag to build against
-        default: eval/smolvla
+        default: 8caf2c26322ae156d0aa733c65e8addeb626e138
   push:
-    branches: [main]
+    branches: [main, codex/blackwell-cu128]
     paths-ignore: [README.md]
 
 permissions:
@@ -49,8 +49,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/async-inf-smolvla
           tags: |
-            type=raw,value=latest
-            type=raw,value=cu121-{{date 'YYYYMMDD'}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=cu121-{{date 'YYYYMMDD'}},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=blackwell,enable=${{ github.ref == 'refs/heads/codex/blackwell-cu128' }}
+            type=raw,value=cu128-{{date 'YYYYMMDD'}},enable=${{ github.ref == 'refs/heads/codex/blackwell-cu128' }}
             type=sha,prefix=sha-
 
       # No gha build cache on purpose: the Actions cache is capped at 10 GB per
@@ -65,7 +67,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           build-args: |
-            LEROBOT_REF=${{ inputs.lerobot_ref || 'eval/smolvla' }}
+            LEROBOT_REF=${{ inputs.lerobot_ref || '8caf2c26322ae156d0aa733c65e8addeb626e138' }}
 
       # The image pins what matters but is not fully locked. Publish the actual
       # resolution as an artifact so it can be committed to the research repo
@@ -73,7 +75,7 @@ jobs:
       - name: Extract resolved lockfile
         run: |
           docker run --rm --entrypoint cat \
-            "ghcr.io/${{ github.repository_owner }}/async-inf-smolvla:latest" \
+            "ghcr.io/${{ github.repository_owner }}/async-inf-smolvla:${{ github.ref == 'refs/heads/main' && 'latest' || 'blackwell' }}" \
             /opt/lerobot-smolvla.lock > lerobot-smolvla-docker.lock
           wc -l lerobot-smolvla-docker.lock
 
