@@ -5,7 +5,7 @@
 # Mirrors scripts_by_author/tonyzhu163/setup_all.sh in the (private)
 # Revisiting-Async-Inf repo, with the gaps that script leaves open closed:
 #   1. LeRobot fork patched (_slice_stats_to_tensor keyword call)
-#   2. cu128 held on the first resolve via uv overrides
+#   2. one selected CUDA wheel profile held on the first resolve via uv overrides
 #   3. mujoco pinned to the eval-comparable 3.3.2 by the same override
 #   4. full LIBERO asset tree overlaid on the incomplete pip `libero` package
 #   5. robosuite's hardcoded /tmp/robosuite.log redirected
@@ -14,12 +14,19 @@
 # The research repo is NOT baked in — mount it at /workspace at run time.
 # Data (HF cache, datasets, checkpoints, outputs) lives on the volume at /data.
 
-FROM nvidia/cuda:12.8.1-base-ubuntu22.04
+ARG CUDA_BASE=12.8.1
+FROM nvidia/cuda:${CUDA_BASE}-base-ubuntu22.04
+
+ARG GPU_PROFILE=rtx5090
+ARG TORCH_CUDA=cu128
 
 COPY ENV_RELEASE /etc/async-inf-release
+RUN printf '%s\n' "${GPU_PROFILE}/${TORCH_CUDA}" > /etc/async-inf-profile
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    ASYNC_INF_GPU_PROFILE=${GPU_PROFILE} \
+    ASYNC_INF_TORCH_CUDA=${TORCH_CUDA}
 
 # --- system: GL/EGL/OSMesa for MuJoCo headless, plus build + sync tools -------
 # cmake and the mesa -dev headers are not optional: lerobot[libero] pulls
@@ -51,11 +58,12 @@ ENV MAMBA_ROOT_PREFIX=/opt/mamba \
 RUN curl -fsSL https://micro.mamba.pm/api/micromamba/linux-64/latest \
       | tar -xj -C /usr/local bin/micromamba
 
-# --- conda env: python 3.12 + ffmpeg + Blackwell-capable torch ----------------
-# Torch 2.7 is the first release with Blackwell support. cu128 also retains
-# kernels for the 4090s used by the existing vast setup.
-COPY vendor/lerobot-smolvla-cu128.yml /tmp/env.yml
+# --- conda env: python 3.12 + ffmpeg + selected torch profile -----------------
+# The two builds differ only in the base image and CUDA wheel suffix. All
+# benchmark/model pins come from the same template.
+COPY vendor/lerobot-smolvla.yml /tmp/env.yml.in
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    sed "s/@TORCH_CUDA@/${TORCH_CUDA}/g" /tmp/env.yml.in > /tmp/env.yml && \
     micromamba create -y -n lerobot-smolvla -f /tmp/env.yml && \
     micromamba clean -ay
 
@@ -84,15 +92,16 @@ RUN PYTHON_BIN="${ENV_PREFIX}/bin/python" bash /tmp/patch_lerobot.sh /opt/lerobo
 # update`, which fetches ~2.5 GB of torch twice. uv overrides REPLACE a declared
 # requirement, so the CUDA and benchmark-sensitive pins hold on the first pass.
 #
-# --index-strategy unsafe-best-match is required to see the +cu128 local
+# --index-strategy unsafe-best-match is required to see the selected local
 # versions on the PyTorch index alongside PyPI; uv's default first-index would
 # never consider them.
-COPY pip-overrides.txt /tmp/pip-overrides.txt
+COPY pip-overrides.txt /tmp/pip-overrides.in
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    sed "s/@TORCH_CUDA@/${TORCH_CUDA}/g" /tmp/pip-overrides.in > /tmp/pip-overrides.txt && \
     uv pip install --python "${ENV_PREFIX}/bin/python" \
       --overrides /tmp/pip-overrides.txt \
       --index-strategy unsafe-best-match \
-      --extra-index-url https://download.pytorch.org/whl/cu128 \
+      --extra-index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" \
       -e "/opt/lerobot[smolvla,training,libero]" \
       json_numpy rich
 
@@ -168,14 +177,17 @@ RUN LIBERO_CONFIG_PATH=/tmp/libero_cfg LIBERO_DATASETS_PATH=/tmp/libero_data \
       python /usr/local/bin/write_libero_config.py && \
     LIBERO_CONFIG_PATH=/tmp/libero_cfg python - <<'PY'
 import importlib.metadata as md
+import os
 import torch, torchvision, numpy, mujoco, lerobot, json_numpy, rich
 from libero.libero import benchmark
 print("torch", torch.__version__, "| torchvision", torchvision.__version__)
 print("numpy", numpy.__version__, "| mujoco", mujoco.__version__)
 print("libero suites:", sorted(benchmark.get_benchmark_dict())[:4], "...")
-assert torch.__version__.startswith("2.7.1+cu128"), torch.__version__
-assert torchvision.__version__.startswith("0.22.1+cu128"), torchvision.__version__
-assert torch.version.cuda == "12.8", torch.version.cuda
+suffix = os.environ["ASYNC_INF_TORCH_CUDA"]
+cuda = f"{suffix[2:4]}.{suffix[4:]}"
+assert torch.__version__ == f"2.7.1+{suffix}", torch.__version__
+assert torchvision.__version__ == f"0.22.1+{suffix}", torchvision.__version__
+assert torch.version.cuda == cuda, torch.version.cuda
 assert mujoco.__version__ == "3.3.2", mujoco.__version__
 assert numpy.__version__ == "2.2.6", numpy.__version__
 for package, version in {

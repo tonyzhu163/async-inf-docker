@@ -5,12 +5,13 @@
 # the resolution fails), uv overrides replace the declared requirement outright.
 # That keeps the complete environment on one resolved CUDA/PyTorch stack.
 #
-# Values must stay in sync with vendor/lerobot-smolvla-cu128.yml.
+# Values must stay in sync with vendor/lerobot-smolvla.yml. Docker substitutes
+# @TORCH_CUDA@ with the selected accelerator profile.
 
 # Compute stack: first stable Blackwell-capable PyTorch release.
-torch==2.7.1+cu128
-torchvision==0.22.1+cu128
-torchaudio==2.7.1+cu128
+torch==2.7.1+@TORCH_CUDA@
+torchvision==0.22.1+@TORCH_CUDA@
+torchaudio==2.7.1+@TORCH_CUDA@
 
 # Benchmark/model semantics. Everything else is allowed to resolve forward.
 numpy==2.2.6

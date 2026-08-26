@@ -8,23 +8,31 @@ This repo is public so Actions minutes and GHCR storage are free. It contains no
 research code — only an env spec, three small support scripts, and the Dockerfile.
 
 This image is the `lerobot-smolvla` **base role** of the research repo's
-`forward-cu128` release. The five-role map lives in
-[`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/codex/env-releases-cu128/requirements/ENV_MAP.md);
-the extension locks remain in the research repo. All five roles passed their
-bounded RTX 5090 runtime gates on Vast5; full DOMINO task execution still needs
-its separate 28 GB assets/checkpoint transfer.
+`forward-v1` release. It has two accelerator profiles with identical
+model/benchmark pins:
+
+| tag | target | PyTorch wheel | system CUDA base |
+|---|---|---|---|
+| `rtx4090` / `ada` | RTX 4090 | 2.7.1+cu126 | 12.1.1 (keeps Vast2's 550 driver usable) |
+| `rtx5090` / `blackwell` | RTX 5090 | 2.7.1+cu128 | 12.8.1 |
+
+The five-role compatibility map lives in
+[`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/codex/env-releases-v1/requirements/ENV_MAP.md);
+the extension locks remain in the research repo.
 
 ```bash
-docker pull ghcr.io/tonyzhu163/async-inf-smolvla:blackwell
-# Immutable checkpoint used by the release map:
-docker pull ghcr.io/tonyzhu163/async-inf-smolvla@sha256:e8199b5ef702b69805b4e6f4da64244085332fa728f01aede560e17c4d2d5bc7
+docker pull ghcr.io/tonyzhu163/async-inf-smolvla:rtx4090
+docker pull ghcr.io/tonyzhu163/async-inf-smolvla:rtx5090
 ```
+
+Use the immutable digest recorded in the research repo for evidence runs; the
+human-readable tags are deployment aliases.
 
 ## Contents
 
 | File | Role |
 |---|---|
-| `ENV_RELEASE` | Release identity baked into `/etc/async-inf-release` |
+| `ENV_RELEASE` | Logical release identity baked into `/etc/async-inf-release` |
 | `Dockerfile` | The image |
 | `pip-overrides.txt` | Absolute version pins (uv overrides) |
 | `entrypoint.sh` | Volume layout + LIBERO config on start |
@@ -35,8 +43,8 @@ docker pull ghcr.io/tonyzhu163/async-inf-smolvla@sha256:e8199b5ef702b69805b4e6f4
 
 | Layer | Contents | Size |
 |---|---|---|
-| Base | `nvidia/cuda:12.8.1-base-ubuntu22.04` + EGL/OSMesa/GL, EGL vendor ICD | ~1.5 GB |
-| Env | python 3.12, ffmpeg, torch 2.7.1+cu128, numpy 2.2.6 | ~11 GB |
+| Base | profile-selected NVIDIA CUDA base + EGL/OSMesa/GL, EGL vendor ICD | ~1.5 GB |
+| Env | python 3.12, ffmpeg, torch 2.7.1+cu126/cu128, numpy 2.2.6 | ~11 GB |
 | LeRobot | `BeneChen/lerobot@eval/smolvla`, patched, `-e .[smolvla,training,libero]` | ~0.5 GB |
 | LIBERO | pip `libero` + the **full** asset tree overlaid from the official repo | ~1.5 GB |
 
@@ -46,9 +54,8 @@ which is the CUDA stack PyTorch bundles, not anything project-specific.
 Six things the cluster setup only gets right by hand, closed here at build time:
 
 1. **`_slice_stats_to_tensor` patch** on the LeRobot fork.
-2. **cu128 held on the first resolve.** Torch 2.7 is the first Blackwell-capable
-   release and still supports the RTX 4090. uv `--overrides` keeps the whole
-   install on one CUDA/PyTorch stack.
+2. **One CUDA wheel profile held on the first resolve.** uv `--overrides`
+   prevents a mixed cu126/cu128 dependency graph.
 3. **`mujoco==3.3.2`**, by the same override rather than by install order. An
    eval-comparability pin, not a compatibility one: 3.8.1 renders darker floors and
    understates success rate. The build smoke asserts it.
@@ -62,7 +69,8 @@ Six things the cluster setup only gets right by hand, closed here at build time:
 ## Run on vast
 
 ```bash
-docker run --gpus all --shm-size=16g -v /data:/data -v $HOME/Revisiting-Async-Inf:/workspace -w /workspace -it ghcr.io/tonyzhu163/async-inf-smolvla:blackwell bash
+IMAGE=ghcr.io/tonyzhu163/async-inf-smolvla:rtx4090  # use rtx5090 on Blackwell
+docker run --gpus all --shm-size=16g -v /data:/data -v $HOME/Revisiting-Async-Inf:/workspace -w /workspace -it "$IMAGE" bash
 ```
 
 `--shm-size=16g` is not optional: the default kills the LIBERO dataloader workers.
@@ -74,15 +82,14 @@ the CI build, which has no GPU:
 python /usr/local/bin/verify_gpu.py
 ```
 
-The host driver must be 570.86 or newer. The verifier launches a real CUDA
-kernel and creates a real EGL context; visibility checks alone do not prove a
-5090-compatible install.
+The verifier launches a real CUDA kernel and creates a real EGL context;
+visibility checks alone do not prove either profile works on a host driver.
 
 ## Comparability boundary
 
 The intentional change from the published environment is
 `torch/torchvision/torchaudio 2.5.1/0.20.1 + cu121` to
-`2.7.1/0.22.1 + cu128`. Trajectory-sensitive inputs remain fixed:
+`2.7.1/0.22.1 + cu126` (4090) or `+cu128` (5090). Trajectory-sensitive inputs remain fixed:
 
 - LeRobot `8caf2c26322ae156d0aa733c65e8addeb626e138` plus the existing normalization patch
 - `transformers==5.5.4`
@@ -94,8 +101,8 @@ That asset commit is byte-identical to the 4090 image used for existing runs
 (585 files, SHA-256 `68ebc7e4bf7b349e132c6c6cfe8bd484af6133a36ac8cbddffead2cd8d11cc66`).
 A deterministic SmolVLA forward on a 4090 changed no action signs across 350
 outputs when moving 2.5.1→2.7.1; mean absolute drift was 0.00193 and maximum
-drift 0.0121. Compare pseudo-chunk and live-async arms inside this image; do not
-mix old 2.5.1 controls with new 2.7.1 treatment rows.
+drift 0.0121. Compare pseudo-chunk and live-async arms inside one accelerator
+profile; do not mix old 2.5.1 controls with new 2.7.1 treatment rows.
 
 Four 4090s have no NVLink and no P2P, so run four independent single-GPU shards pinned
 with `CUDA_VISIBLE_DEVICES` rather than DDP.
@@ -119,13 +126,13 @@ nohup sh -c 'hf download lerobot/pi05-libero && hf download lerobot/smolvla_base
 #    rsync -az --exclude=.git --exclude=outputs --exclude=pretrained_models \
 #      Revisiting-Async-Inf/ <box>:/workspace/Revisiting-Async-Inf/
 
-# 4. Build only the role extensions you need. The canonical cu128 commands,
+# 4. Build only the role extensions you need. Canonical profile commands,
 # source revisions, and bounded smokes live in requirements/vast/README.md and
 # requirements/domino-pi05-uv.md in the research repo.
 ```
 
-The forward VLASH landing point is Torch 2.7.1+cu128 with MuJoCo 3.3.7 and
-NumPy 1.24.4. Kinetix inherits this image's Torch and uses CPU-only JAX 0.6.2.
+The forward VLASH landing point uses the selected Torch profile with MuJoCo
+3.3.7 and NumPy 1.24.4. Kinetix inherits this image's Torch and uses CPU-only JAX 0.6.2.
 A benign `GLContext.__del__` traceback at interpreter exit is normal.
 
 On an existing Vast template whose persistent volume is mounted at
@@ -153,9 +160,9 @@ it. Mirror promotion-gate checkpoints off-box.
 ## Lockfile
 
 The image pins only what matters and lets uv resolve the rest. Every CI run uploads the
-full resolution as an artifact (`lerobot-smolvla-docker.lock`). The successful
-forward build is recorded in the research repo as
-`requirements/lerobot-smolvla-cu128.lock`.
+full resolutions as `lerobot-smolvla-cu126.lock` and
+`lerobot-smolvla-cu128.lock` artifacts. Qualified copies are committed in the
+research repo under `requirements/`.
 
 ## Keeping `vendor/` in sync
 
@@ -163,7 +170,7 @@ forward build is recorded in the research repo as
 
 | Here | Upstream |
 |---|---|
-| `vendor/lerobot-smolvla-cu128.yml` + `pip-overrides.txt` | research repo `environment/lerobot-smolvla-cu128.yml` |
+| `vendor/lerobot-smolvla.yml` + `pip-overrides.txt` | research repo's cu126/cu128 profiles (same pins except CUDA triplet) |
 | `vendor/patch_lerobot_smolvla.sh` | `scripts_by_author/tonyzhu163/patch_lerobot_smolvla.sh` |
 | `vendor/robosuite_logpatch/` | `scripts/robosuite_logpatch/` |
 
