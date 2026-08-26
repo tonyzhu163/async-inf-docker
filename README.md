@@ -26,7 +26,8 @@ docker pull ghcr.io/tonyzhu163/async-inf-smolvla:rtx5090
 ```
 
 Use the immutable digest recorded in the research repo for evidence runs; the
-human-readable tags are deployment aliases.
+human-readable tags are deployment aliases. There is deliberately no `latest`
+tag: choosing Ada or Blackwell is part of the run identity.
 
 ## Contents
 
@@ -135,7 +136,8 @@ nohup sh -c 'hf download lerobot/pi05-libero && hf download lerobot/smolvla_base
 ```
 
 The forward VLASH landing point uses the selected Torch profile with MuJoCo
-3.3.7 and NumPy 1.24.4. Kinetix inherits this image's Torch and uses CPU-only JAX 0.6.2.
+3.3.7 and NumPy 1.24.4. Kinetix inherits this image's Torch and uses JAX 0.5.3
+on CPU by default, leaving the selected GPU to Torch.
 A benign `GLContext.__del__` traceback at interpreter exit is normal.
 
 On an existing Vast template whose persistent volume is mounted at
