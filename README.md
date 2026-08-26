@@ -10,8 +10,9 @@ research code — only an env spec, three small support scripts, and the Dockerf
 This image is the `lerobot-smolvla` **base role** of the research repo's
 `forward-cu128` release. The five-role map lives in
 [`requirements/ENV_MAP.md`](https://github.com/tonyzhu163/Revisiting-Async-Inf/blob/codex/env-releases-cu128/requirements/ENV_MAP.md);
-this image does not by itself qualify the Kinetix, OpenPI, DOMINO, or VLASH
-extensions on Blackwell.
+the extension locks remain in the research repo. All five roles passed their
+bounded RTX 5090 runtime gates on Vast5; full DOMINO task execution still needs
+its separate 28 GB assets/checkpoint transfer.
 
 ```bash
 docker pull ghcr.io/tonyzhu163/async-inf-smolvla:blackwell
@@ -118,29 +119,19 @@ nohup sh -c 'hf download lerobot/pi05-libero && hf download lerobot/smolvla_base
 #    rsync -az --exclude=.git --exclude=outputs --exclude=pretrained_models \
 #      Revisiting-Async-Inf/ <box>:/workspace/Revisiting-Async-Inf/
 
-# 4. π0.5/vlash env — on the volume, not in the image (conflicting pins, see below).
-git clone --branch sim/libero https://github.com/mit-han-lab/vlash /data/repos/vlash
-UV=/opt/mamba/envs/lerobot-smolvla/bin/uv
-export UV_CACHE_DIR=/data/pip_cache/uv CMAKE_POLICY_VERSION_MINIMUM=3.5
-$UV venv --python 3.10 /data/envs/vlash --seed
-$UV pip sync --python /data/envs/vlash/bin/python \
-  --extra-index-url https://download.pytorch.org/whl/cu121 \
-  --index-strategy unsafe-best-match \
-  /workspace/Revisiting-Async-Inf/requirements/vast/vlash-pi05.lock
-
-# 5. Prove the rebuild: freeze must match the lock, CUDA and EGL must work.
-$UV pip freeze --python /data/envs/vlash/bin/python | grep -vE '^(pip|wheel|setuptools)==|file:///' | sort \
-  | diff - <(grep -E '^[a-zA-Z0-9_-]+==' /workspace/Revisiting-Async-Inf/requirements/vast/vlash-pi05.lock | sort)
-/data/envs/vlash/bin/python -c "import torch; assert torch.cuda.is_available()"
-MUJOCO_GL=egl /data/envs/vlash/bin/python -c "import mujoco; c=mujoco.GLContext(64,64); c.make_current(); print('egl ok')"
+# 4. Build only the role extensions you need. The canonical cu128 commands,
+# source revisions, and bounded smokes live in requirements/vast/README.md and
+# requirements/domino-pi05-uv.md in the research repo.
 ```
 
-Expected landing point: torch 2.5.1+cu121, mujoco 3.3.7, numpy 1.24.4 in the vlash
-env. A benign `GLContext.__del__` traceback at interpreter exit is normal. The
-`lerobot-kinetix` env follows the same pattern from its own `.in`/lock.
+The forward VLASH landing point is Torch 2.7.1+cu128 with MuJoCo 3.3.7 and
+NumPy 1.24.4. Kinetix inherits this image's Torch and uses CPU-only JAX 0.6.2.
+A benign `GLContext.__del__` traceback at interpreter exit is normal.
 
-The separate VLASH and Kinetix recipes above still carry their historical
-CUDA locks and are not Blackwell-qualified by this image.
+On an existing Vast template whose persistent volume is mounted at
+`/workspace`, keep the instance: migrate the small current `/data` contents
+once, then point `/data` at `/workspace`. New templates should mount the volume
+at `/data` directly. Do not maintain two caches.
 
 ## Volume layout (300 GB)
 
@@ -181,6 +172,5 @@ forward build is recorded in the research repo as
 ## Other runtime roles
 
 Kinetix is an overlay on this base. OpenPI and DOMINO are separate cooperating
-services, while VLASH is an isolated reproduction environment. They keep their
-own locks and require independent Blackwell qualification; do not add their
-conflicting packages to this base image.
+services, while VLASH is an isolated reproduction environment. Their qualified
+locks stay separate; do not add their conflicting packages to this base image.
