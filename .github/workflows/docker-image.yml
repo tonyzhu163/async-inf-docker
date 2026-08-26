@@ -9,9 +9,9 @@ on:
     inputs:
       lerobot_ref:
         description: LeRobot fork branch or tag to build against
-        default: eval/smolvla
+        default: 8caf2c26322ae156d0aa733c65e8addeb626e138
   push:
-    branches: [main]
+    branches: [main, codex/forward-gpu-profiles]
     paths-ignore: [README.md]
 
 permissions:
@@ -20,6 +20,16 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: cu126
+            gpu: rtx4090
+            cuda_base: 12.1.1
+          - profile: cu128
+            gpu: rtx5090
+            cuda_base: 12.8.1
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -36,6 +46,16 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - id: release
+        name: Read environment release
+        run: |
+          release="$(tr -d '[:space:]' < ENV_RELEASE)"
+          case "$release" in
+            forward-v1) ;;
+            *) echo "unsupported ENV_RELEASE: $release" >&2; exit 1 ;;
+          esac
+          echo "name=$release" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -49,9 +69,12 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/async-inf-smolvla
           tags: |
-            type=raw,value=latest
-            type=raw,value=cu121-{{date 'YYYYMMDD'}}
-            type=sha,prefix=sha-
+            type=raw,value=${{ steps.release.outputs.name }}-${{ matrix.profile }}
+            type=raw,value=${{ matrix.profile }}-{{date 'YYYYMMDD'}}
+            type=raw,value=${{ matrix.gpu }}
+            type=raw,value=ada,enable=${{ matrix.gpu == 'rtx4090' }}
+            type=raw,value=blackwell,enable=${{ matrix.gpu == 'rtx5090' }}
+            type=sha,prefix=${{ matrix.profile }}-sha-
 
       # No gha build cache on purpose: the Actions cache is capped at 10 GB per
       # repo and these layers exceed that, so caching would thrash and evict
@@ -65,7 +88,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           build-args: |
-            LEROBOT_REF=${{ inputs.lerobot_ref || 'eval/smolvla' }}
+            LEROBOT_REF=${{ inputs.lerobot_ref || '8caf2c26322ae156d0aa733c65e8addeb626e138' }}
+            CUDA_BASE=${{ matrix.cuda_base }}
+            GPU_PROFILE=${{ matrix.gpu }}
+            TORCH_CUDA=${{ matrix.profile }}
 
       # The image pins what matters but is not fully locked. Publish the actual
       # resolution as an artifact so it can be committed to the research repo
@@ -73,11 +99,11 @@ jobs:
       - name: Extract resolved lockfile
         run: |
           docker run --rm --entrypoint cat \
-            "ghcr.io/${{ github.repository_owner }}/async-inf-smolvla:latest" \
-            /opt/lerobot-smolvla.lock > lerobot-smolvla-docker.lock
-          wc -l lerobot-smolvla-docker.lock
+            "ghcr.io/${{ github.repository_owner }}/async-inf-smolvla:${{ steps.release.outputs.name }}-${{ matrix.profile }}" \
+            /opt/lerobot-smolvla.lock > "lerobot-smolvla-${{ matrix.profile }}.lock"
+          wc -l "lerobot-smolvla-${{ matrix.profile }}.lock"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lerobot-smolvla-docker.lock
-          path: lerobot-smolvla-docker.lock
+          name: lerobot-smolvla-${{ matrix.profile }}.lock
+          path: lerobot-smolvla-${{ matrix.profile }}.lock

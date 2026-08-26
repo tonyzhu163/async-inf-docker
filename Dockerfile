@@ -5,19 +5,29 @@
 # Mirrors scripts_by_author/tonyzhu163/setup_all.sh in the (private)
 # Revisiting-Async-Inf repo, with the gaps that script leaves open closed:
 #   1. LeRobot fork patched (_slice_stats_to_tensor keyword call)
-#   2. cu121 held on the first resolve via uv overrides — no torch downgrade pass
+#   2. one selected CUDA wheel profile held on the first resolve via uv overrides
 #   3. mujoco pinned to the eval-comparable 3.3.2 by the same override
 #   4. full LIBERO asset tree overlaid on the incomplete pip `libero` package
 #   5. robosuite's hardcoded /tmp/robosuite.log redirected
-#   6. LIBERO config written before anything imports LIBERO
+#   6. robosuite's invalid UUID/EGL substring guard relaxed
+#   7. LIBERO config written before anything imports LIBERO
 #
 # The research repo is NOT baked in — mount it at /workspace at run time.
 # Data (HF cache, datasets, checkpoints, outputs) lives on the volume at /data.
 
-FROM nvidia/cuda:12.1.1-base-ubuntu22.04
+ARG CUDA_BASE=12.8.1
+FROM nvidia/cuda:${CUDA_BASE}-base-ubuntu22.04
+
+ARG GPU_PROFILE=rtx5090
+ARG TORCH_CUDA=cu128
+
+COPY ENV_RELEASE /etc/async-inf-release
+RUN printf '%s\n' "${GPU_PROFILE}/${TORCH_CUDA}" > /etc/async-inf-profile
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    ASYNC_INF_GPU_PROFILE=${GPU_PROFILE} \
+    ASYNC_INF_TORCH_CUDA=${TORCH_CUDA}
 
 # --- system: GL/EGL/OSMesa for MuJoCo headless, plus build + sync tools -------
 # cmake and the mesa -dev headers are not optional: lerobot[libero] pulls
@@ -49,12 +59,12 @@ ENV MAMBA_ROOT_PREFIX=/opt/mamba \
 RUN curl -fsSL https://micro.mamba.pm/api/micromamba/linux-64/latest \
       | tar -xj -C /usr/local bin/micromamba
 
-# --- conda env: python 3.12 + ffmpeg + cu121 torch pins -----------------------
-# cu121 is deliberate: it is what every published number in the research repo
-# was measured under, and the wheels carry sm_89 so they run on 4090s. Newer
-# drivers are backward compatible.
-COPY vendor/lerobot-smolvla-cu121.yml /tmp/env.yml
+# --- conda env: python 3.12 + ffmpeg + selected torch profile -----------------
+# The two builds differ only in the base image and CUDA wheel suffix. All
+# benchmark/model pins come from the same template.
+COPY vendor/lerobot-smolvla.yml /tmp/env.yml.in
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    sed "s/@TORCH_CUDA@/${TORCH_CUDA}/g" /tmp/env.yml.in > /tmp/env.yml && \
     micromamba create -y -n lerobot-smolvla -f /tmp/env.yml && \
     micromamba clean -ay
 
@@ -69,8 +79,11 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 # .git is kept: shallow, and removing it can break version resolution on an
 # editable install.
 ARG LEROBOT_REPO=https://github.com/BeneChen/lerobot.git
-ARG LEROBOT_REF=eval/smolvla
-RUN git clone --depth 1 --branch "${LEROBOT_REF}" "${LEROBOT_REPO}" /opt/lerobot
+ARG LEROBOT_REF=8caf2c26322ae156d0aa733c65e8addeb626e138
+RUN git init /opt/lerobot && cd /opt/lerobot && \
+    git remote add origin "${LEROBOT_REPO}" && \
+    git fetch --depth 1 origin "${LEROBOT_REF}" && \
+    git checkout --detach FETCH_HEAD
 
 COPY vendor/patch_lerobot_smolvla.sh /tmp/patch_lerobot.sh
 RUN PYTHON_BIN="${ENV_PREFIX}/bin/python" bash /tmp/patch_lerobot.sh /opt/lerobot
@@ -78,28 +91,40 @@ RUN PYTHON_BIN="${ENV_PREFIX}/bin/python" bash /tmp/patch_lerobot.sh /opt/lerobo
 # Single-pass install. The fork's metadata declares torch>=2.7; the cluster's
 # setup_all.sh copes by installing it and then downgrading via `conda env
 # update`, which fetches ~2.5 GB of torch twice. uv overrides REPLACE a declared
-# requirement (pip constraints only add to it, so `torch>=2.7` still wins and
-# the resolve fails), so cu121 torch and mujoco 3.3.2 hold on the first pass and
-# no wrong-version wheel is ever fetched.
+# requirement, so the CUDA and benchmark-sensitive pins hold on the first pass.
 #
-# --index-strategy unsafe-best-match is required to see the +cu121 local
+# --index-strategy unsafe-best-match is required to see the selected local
 # versions on the PyTorch index alongside PyPI; uv's default first-index would
 # never consider them.
-COPY pip-overrides.txt /tmp/pip-overrides.txt
+COPY pip-overrides.txt /tmp/pip-overrides.in
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    sed "s/@TORCH_CUDA@/${TORCH_CUDA}/g" /tmp/pip-overrides.in > /tmp/pip-overrides.txt && \
     uv pip install --python "${ENV_PREFIX}/bin/python" \
       --overrides /tmp/pip-overrides.txt \
       --index-strategy unsafe-best-match \
-      --extra-index-url https://download.pytorch.org/whl/cu121 \
+      --extra-index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" \
       -e "/opt/lerobot[smolvla,training,libero]" \
       json_numpy rich
+
+# robosuite 1.4 tests a host-global EGL index as a substring of
+# CUDA_VISIBLE_DEVICES. That is meaningless for UUID-pinned lanes and caused
+# one Vast4 lane to fail solely because its UUID did not contain digit "2".
+COPY vendor/patch_robosuite_egl.py /tmp/patch_robosuite_egl.py
+RUN python /tmp/patch_robosuite_egl.py "${ENV_PREFIX}" && \
+    CUDA_VISIBLE_DEVICES=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee \
+    MUJOCO_EGL_DEVICE_ID=2 MUJOCO_GL=disable \
+    python -c 'import robosuite.utils.binding_utils'
 
 # --- complete the LIBERO asset tree -------------------------------------------
 # The pip `libero` package ships 6 of 14 stable_hope_objects; any suite touching
 # orange_juice/ketchup/cookies/... dies at env construction. Overlay the full
 # tree from the official repo, then drop the clone in the same layer.
 COPY write_libero_config.py /usr/local/bin/write_libero_config.py
-RUN git clone --depth 1 https://github.com/Lifelong-Robot-Learning/LIBERO /tmp/LIBERO_clone && \
+ARG LIBERO_REF=8f1084e3132a39270c3a13ebe37270a43ece2a01
+RUN git init /tmp/LIBERO_clone && cd /tmp/LIBERO_clone && \
+    git remote add origin https://github.com/Lifelong-Robot-Learning/LIBERO && \
+    git fetch --depth 1 origin "${LIBERO_REF}" && \
+    git checkout --detach FETCH_HEAD && \
     PKG_ROOT="$(python -c 'import importlib.util, os; print(os.path.dirname(importlib.util.find_spec("libero").origin))')" && \
     rsync -a /tmp/LIBERO_clone/libero/libero/assets/ "${PKG_ROOT}/libero/assets/" && \
     rm -rf /tmp/LIBERO_clone && \
@@ -161,14 +186,28 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/write_libero_config.py 
 RUN LIBERO_CONFIG_PATH=/tmp/libero_cfg LIBERO_DATASETS_PATH=/tmp/libero_data \
       python /usr/local/bin/write_libero_config.py && \
     LIBERO_CONFIG_PATH=/tmp/libero_cfg python - <<'PY'
+import importlib.metadata as md
+import os
 import torch, torchvision, numpy, mujoco, lerobot, json_numpy, rich
 from libero.libero import benchmark
 print("torch", torch.__version__, "| torchvision", torchvision.__version__)
 print("numpy", numpy.__version__, "| mujoco", mujoco.__version__)
 print("libero suites:", sorted(benchmark.get_benchmark_dict())[:4], "...")
-assert torch.__version__.startswith("2.5.1"), torch.__version__
+suffix = os.environ["ASYNC_INF_TORCH_CUDA"]
+cuda = f"{suffix[2:4]}.{suffix[4:]}"
+assert torch.__version__ == f"2.7.1+{suffix}", torch.__version__
+assert torchvision.__version__ == f"0.22.1+{suffix}", torchvision.__version__
+assert torch.version.cuda == cuda, torch.version.cuda
 assert mujoco.__version__ == "3.3.2", mujoco.__version__
 assert numpy.__version__ == "2.2.6", numpy.__version__
+for package, version in {
+    "robosuite": "1.4.0",
+    "bddl": "1.0.1",
+    "hf-libero": "0.1.4",
+    "scipy": "1.18.0",
+    "transformers": "5.5.4",
+}.items():
+    assert md.version(package) == version, (package, md.version(package))
 PY
 
 # Freeze the resolution that actually shipped, for extraction by CI.

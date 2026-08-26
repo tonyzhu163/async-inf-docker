@@ -3,18 +3,23 @@
 #
 # Unlike pip constraints (additive, so a declared `torch>=2.7` still wins and
 # the resolution fails), uv overrides replace the declared requirement outright.
-# That is what lets the LeRobot fork install in ONE pass against cu121 torch
-# instead of pulling 2.7 and then being downgraded.
+# That keeps the complete environment on one resolved CUDA/PyTorch stack.
 #
-# Values must stay in sync with environment/lerobot-smolvla-cu121.yml.
+# Values must stay in sync with vendor/lerobot-smolvla.yml. Docker substitutes
+# @TORCH_CUDA@ with the selected accelerator profile.
 
-# The fork's metadata declares torch>=2.7. cu121 is what every published number
-# in this repo was measured under, and 2.5.1 is validated on this stack.
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121
-torchaudio==2.5.1+cu121
+# Compute stack: first stable Blackwell-capable PyTorch release.
+torch==2.7.1+@TORCH_CUDA@
+torchvision==0.22.1+@TORCH_CUDA@
+torchaudio==2.7.1+@TORCH_CUDA@
 
+# Benchmark/model semantics. Everything else is allowed to resolve forward.
 numpy==2.2.6
+scipy==1.18.0
+transformers==5.5.4
+hf-libero==0.1.4
+robosuite==1.4.0
+bddl==1.0.1
 setuptools==80.10.2
 fsspec==2026.2.0
 
