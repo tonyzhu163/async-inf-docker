@@ -96,6 +96,10 @@ RUN PYTHON_BIN="${ENV_PREFIX}/bin/python" bash /tmp/patch_lerobot.sh /opt/lerobo
 # --index-strategy unsafe-best-match is required to see the selected local
 # versions on the PyTorch index alongside PyPI; uv's default first-index would
 # never consider them.
+#
+# msgpack/websockets: the research repo's openpi websocket eval backend
+# (openpi_client.websocket_client_policy -> msgpack_numpy -> msgpack) imports
+# them at run time, and nothing in the lerobot extras declares either.
 COPY pip-overrides.txt /tmp/pip-overrides.in
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     sed "s/@TORCH_CUDA@/${TORCH_CUDA}/g" /tmp/pip-overrides.in > /tmp/pip-overrides.txt && \
@@ -104,7 +108,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
       --index-strategy unsafe-best-match \
       --extra-index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" \
       -e "/opt/lerobot[smolvla,training,libero]" \
-      json_numpy rich
+      json_numpy rich \
+      msgpack==1.2.1 websockets==17.1
 
 # robosuite 1.4 tests a host-global EGL index as a substring of
 # CUDA_VISIBLE_DEVICES. That is meaningless for UUID-pinned lanes and caused
@@ -189,6 +194,7 @@ RUN LIBERO_CONFIG_PATH=/tmp/libero_cfg LIBERO_DATASETS_PATH=/tmp/libero_data \
 import importlib.metadata as md
 import os
 import torch, torchvision, numpy, mujoco, lerobot, json_numpy, rich
+import msgpack, websockets
 from libero.libero import benchmark
 print("torch", torch.__version__, "| torchvision", torchvision.__version__)
 print("numpy", numpy.__version__, "| mujoco", mujoco.__version__)
@@ -206,6 +212,8 @@ for package, version in {
     "hf-libero": "0.1.4",
     "scipy": "1.18.0",
     "transformers": "5.5.4",
+    "msgpack": "1.2.1",
+    "websockets": "17.1",
 }.items():
     assert md.version(package) == version, (package, md.version(package))
 PY
