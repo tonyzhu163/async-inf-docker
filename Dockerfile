@@ -32,7 +32,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # --- system: GL/EGL/OSMesa for MuJoCo headless, plus build + sync tools -------
 # cmake and the mesa -dev headers are not optional: lerobot[libero] pulls
 # hf-libero -> robomimic -> egl-probe, which ships only an sdist and builds a
-# small EGL probe binary via CMake at install time.
+# small EGL probe binary via CMake at install time. egl-probe's CMakeLists
+# declares a pre-3.5 cmake_minimum_required, which cmake >= 4 refuses; today
+# apt's cmake is 3.x so the build passes, but the policy floor keeps the sdist
+# building if the base distro (or a pip cmake on PATH) moves to 4.x — the
+# exact failure the raw-host env build hit on vast4 (2026-08-28).
+ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
